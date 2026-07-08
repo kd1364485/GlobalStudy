@@ -1,0 +1,34 @@
+"""AI ユースケース。
+
+LLM クライアントの生成と実行を担当する。
+Phase 5 以降で OCR テキストの解析プロンプト組立てをここへ追加する。
+"""
+
+from globalstudy.ai.base import LlmClient
+from globalstudy.ai.ollama_client import OllamaClient
+from globalstudy.config import Config
+from globalstudy.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class AiService:
+    """LLM への問い合わせを提供するサービス。"""
+
+    def __init__(self, config: Config, client: LlmClient | None = None) -> None:
+        self._client = client or OllamaClient(config)
+
+    def is_available(self) -> bool:
+        """LLM バックエンドが利用可能かを返す。"""
+        return self._client.is_available()
+
+    def ask(self, prompt: str) -> str:
+        """プロンプトを送信し、応答テキストを返す。
+
+        Raises:
+            LlmError: LLM との通信に失敗した場合。
+        """
+        logger.info("LLM へ問い合わせ中...")
+        response = self._client.generate(prompt)
+        logger.info("LLM 応答受信（%d 文字）", len(response))
+        return response

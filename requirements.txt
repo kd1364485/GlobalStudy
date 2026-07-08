@@ -1,0 +1,16 @@
+# Phase 1: GUI
+PySide6>=6.7
+
+# Phase 2: 画面キャプチャ・ホットキー
+mss>=9.0
+pynput>=1.7
+
+# Phase 3: OCR
+# PaddleOCR (高精度・高機能) と RapidOCR (軽量ONNX版) の両方を利用可能
+paddleocr>=2.7
+paddlepaddle>=2.5
+rapidocr>=2.0
+onnxruntime>=1.17
+
+# Phase 4: LLM (Ollama API)
+requests>=2.31
