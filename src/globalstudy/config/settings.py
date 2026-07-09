@@ -54,7 +54,7 @@ class LlmConfig:
     """LLM（Ollama）設定（Phase 4 で使用）。"""
 
     base_url: str = "http://localhost:11434"
-    model: str = "qwen3:8b"
+    model: str = "qwen3:4b"
     timeout_seconds: int = 300
     # qwen3 系の思考モード。応答速度優先のため無効化
     enable_thinking: bool = False

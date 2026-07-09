@@ -6,7 +6,6 @@ GUI のフリーズを防ぐ。結果はシグナルでメインスレッドへ�
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
-from globalstudy.models.analysis_result import AnalysisResult
 from globalstudy.services.analysis_service import AnalysisService
 from globalstudy.utils.logger import get_logger
 
@@ -16,7 +15,9 @@ logger = get_logger(__name__)
 class AnalysisWorkerSignals(QObject):
     """ワーカーからメインスレッドへの通知シグナル。"""
 
-    finished = Signal(AnalysisResult)
+    partial = Signal(str)
+    ocr_text = Signal(str)
+    finished = Signal(str)
     failed = Signal(str)
 
 
@@ -31,12 +32,16 @@ class AnalysisWorker(QRunnable):
 
     def run(self) -> None:
         try:
-            result = self._service.analyze_screen()
+            for event, text in self._service.translate_stream():
+                if event == "ocr":
+                    self._safe_emit(self.signals.ocr_text, text)
+                elif event == "partial":
+                    self._safe_emit(self.signals.partial, text)
+                elif event == "done":
+                    self._safe_emit(self.signals.finished, text)
         except Exception as exc:
-            logger.error("解析失敗: %s", exc)
+            logger.error("翻訳失敗: %s", exc)
             self._safe_emit(self.signals.failed, str(exc))
-            return
-        self._safe_emit(self.signals.finished, result)
 
     @staticmethod
     def _safe_emit(signal, *args) -> None:

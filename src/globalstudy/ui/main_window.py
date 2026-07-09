@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSplitter,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
 
 from globalstudy.capture.hotkey_listener import HotkeyListener
 from globalstudy.config import Config
-from globalstudy.models.analysis_result import AnalysisResult
 from globalstudy.models.region import CaptureRegion
 from globalstudy.services.analysis_service import AnalysisService
 from globalstudy.services.capture_service import CaptureService
@@ -81,7 +79,7 @@ class MainWindow(QMainWindow):
         self.select_region_button.clicked.connect(self._on_select_region)
         bar.addWidget(self.select_region_button)
 
-        self.analyze_button = QPushButton("キャプチャ＆解析")
+        self.analyze_button = QPushButton("キャプチャ＆翻訳")
         self.analyze_button.clicked.connect(self._on_analyze)
         bar.addWidget(self.analyze_button)
 
@@ -94,23 +92,12 @@ class MainWindow(QMainWindow):
         splitter.addWidget(
             self._create_labeled_text_area("元の英文", "source_text")
         )
-        splitter.addWidget(self._create_analysis_tabs())
+        splitter.addWidget(
+            self._create_labeled_text_area("日本語訳", "translation_text")
+        )
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
         return splitter
-
-    def _create_analysis_tabs(self) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.addTab(self._create_text_area("translation_text", "日本語訳"), "日本語訳")
-        tabs.addTab(self._create_text_area("key_points_text", "重要ポイント"), "重要ポイント")
-        tabs.addTab(self._create_text_area("terms_text", "専門用語の解説"), "専門用語")
-        tabs.addTab(
-            self._create_text_area("beginner_text", "初心者向け説明"), "初心者向け説明"
-        )
-        tabs.addTab(self._create_text_area("background_text", "背景知識"), "背景知識")
-        tabs.addTab(self._create_text_area("related_text", "関連概念"), "関連概念")
-        self.analysis_tabs = tabs
-        return tabs
 
     def _create_text_area(self, attr_name: str, placeholder: str) -> QTextEdit:
         text_edit = QTextEdit()
@@ -154,8 +141,11 @@ class MainWindow(QMainWindow):
             return
 
         self._set_analyzing(True)
+        self.translation_text.clear()
         worker = AnalysisWorker(self._analysis_service)
-        worker.signals.finished.connect(self._on_analysis_finished)
+        worker.signals.ocr_text.connect(self._on_ocr_text)
+        worker.signals.partial.connect(self._on_partial)
+        worker.signals.finished.connect(self._on_translation_finished)
         worker.signals.failed.connect(self._on_analysis_failed)
         self._worker = worker
         self._thread_pool.start(worker)
@@ -164,23 +154,23 @@ class MainWindow(QMainWindow):
         self._analyzing = analyzing
         self.analyze_button.setEnabled(not analyzing)
         if analyzing:
-            self.statusBar().showMessage("解析中...（キャプチャ → OCR → AI）")
+            self.statusBar().showMessage("翻訳中...（キャプチャ → OCR → AI）")
 
-    def _on_analysis_finished(self, result: AnalysisResult) -> None:
+    def _on_ocr_text(self, text: str) -> None:
+        self.source_text.setPlainText(text)
+        self.statusBar().showMessage("OCR完了。翻訳中...")
+
+    def _on_partial(self, chunk: str) -> None:
+        cursor = self.translation_text.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(chunk)
+        self.translation_text.setTextCursor(cursor)
+
+    def _on_translation_finished(self, full_text: str) -> None:
         self._worker = None
         self._set_analyzing(False)
-        analysis = result.analysis
-        self.source_text.setPlainText(result.ocr.text)
-        self.translation_text.setPlainText(analysis.translation)
-        self.key_points_text.setPlainText(analysis.key_points)
-        self.terms_text.setPlainText(analysis.terms or "専門用語はありません")
-        self.beginner_text.setPlainText(analysis.beginner_explanation)
-        self.background_text.setPlainText(analysis.background or "背景知識はありません")
-        self.related_text.setPlainText(analysis.related_concepts or "関連概念はありません")
-        self.analysis_tabs.setCurrentIndex(0)
-        self.statusBar().showMessage(
-            f"解析完了（OCR信頼度: {result.ocr.confidence:.2f}）"
-        )
+        self.translation_text.setPlainText(full_text)
+        self.statusBar().showMessage("翻訳完了")
 
     def _on_analysis_failed(self, message: str) -> None:
         self._worker = None

@@ -1,8 +1,9 @@
 """AI ユースケース。
 
 LLM クライアントの生成と実行を担当する。
-Phase 5 以降で OCR テキストの解析プロンプト組立てをここへ追加する。
 """
+
+from collections.abc import Iterator
 
 from globalstudy.ai.base import LlmClient
 from globalstudy.ai.ollama_client import OllamaClient
@@ -32,3 +33,12 @@ class AiService:
         response = self._client.generate(prompt)
         logger.info("LLM 応答受信（%d 文字）", len(response))
         return response
+
+    def ask_stream(self, prompt: str) -> Iterator[str]:
+        """プロンプトを送信し、応答テキストをチャンク単位で逐次返す。
+
+        Raises:
+            LlmError: LLM との通信に失敗した場合。
+        """
+        logger.info("LLM へストリーミング問い合わせ中...")
+        yield from self._client.generate_stream(prompt)
