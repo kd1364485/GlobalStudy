@@ -25,32 +25,6 @@
 ## 設計
 
 ```
-<<<<<<< Updated upstream
-範囲を選ぶ → Ctrl+Shift+Q → 画面キャプチャ → OCR → ローカルLLM (Ollama) → 日本語訳を流れるように表示(ストリーミング)
-```
-
-すべてこの PC の中で動く(外部の API を使わない)。
-
-## いまできること / まだのこと(2026/11/05 時点)
-
-| | 状態 |
-| --- | --- |
-| 範囲選択・ホットキーでのキャプチャ・OCR・日本語訳(ストリーミング表示) | **できる**(画面から使える) |
-| 専門用語の解説・重要ポイント・初心者向けの説明 | **プロンプトと解析処理はある**(`build_analysis_prompt`、`parse_analysis_response`)。ただし、**画面からは呼ばれていない**。応答の速さを優先して、画面は訳だけにしている。手動の確認スクリプト `tests/manual_prompt_check.py` で動作を確かめられる |
-| 学習履歴の保存(SQLite) | **未実装**(`storage/` は空。保存先のパスの設定だけある) |
-| リアルタイムのキャプチャ(dxcam) | **未実装**(今は mss での 1 枚ずつのキャプチャ。dxcam に差し替えられる設計にしてある) |
-
-## 技術スタック
-
-| 役割 | 技術 |
-| --- | --- |
-| GUI | PySide6 |
-| 画面キャプチャ・ホットキー | mss / pynput |
-| OCR | PaddleOCR(RapidOCR に設定で切り替え可能) |
-| LLM | Ollama (ローカル)、既定のモデルは `qwen3:8b` |
-
-設定値はすべて `src/globalstudy/config/settings.py` に集めている(ホットキー、OCR エンジン、モデル名など)。
-=======
 ui/ (PySide6、QThreadPool + Worker)      ← 画面とスレッドの管理だけ
   └→ services/   キャプチャ・OCR・AI・オーバーレイ・VLM の各ユースケース
         ├→ capture/  mss、ホットキー(pynput)、スライド変化の監視(dHash)
@@ -112,7 +86,6 @@ Ollama の応答に入っている内訳では、翻訳 1 回は「読み込み 
 - オーバーレイ翻訳は、以前の既定だった `qwen3:1.7b` では速いが訳の質が低かった。デモ用スライドの 5 枚では、1 枚が中国語で返ってきた。ほかにも、崩れた語(Median latency →「マジッドラテンス」)や、残すはずのコードの翻訳があった。`qwen3:8b` にすると、5 枚とも日本語で、コードもそのまま残った。そのかわり、1 枚あたり 0.6〜1.0 秒が 0.9〜1.8 秒になった(RTX 5070 Ti)。質を優先して、既定を 8b にした。行ごとに訳すので、文が 2 行に分かれると訳が崩れやすい。
 - 単体テストは、LLM と画面に依存しない部分(オーバーレイの行の判定と応答の解析、dHash、設定)だけ。`tests/manual_prompt_check.py` は、今はない関数を読み込むので動かない(以前の版の確認用)。
 - Windows で確認。ほかの OS では試していない。
->>>>>>> Stashed changes
 
 ## セットアップ
 
@@ -123,13 +96,9 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pip install -e .
-<<<<<<< Updated upstream
-ollama pull qwen3:8b
-=======
 
 ollama pull qwen3:8b       # キャプチャ＆翻訳、オーバーレイ翻訳
 ollama pull minicpm-v:8b   # VLM 解析(なくても、翻訳は動く)
->>>>>>> Stashed changes
 ```
 
 GPU のメモリが少ない場合、`qwen3:8b`(約 5.6GB)が GPU に入りきらず、一部を CPU で動かすため遅くなります(6GB の GPU では、初回が約 76 秒だった)。`config/settings.py` でモデルを小さくできます(オーバーレイだけ `qwen3:1.7b` にすると速くなるが、訳の質は下がる)。
@@ -140,39 +109,6 @@ GPU のメモリが少ない場合、`qwen3:8b`(約 5.6GB)が GPU に入りき�
 python -m globalstudy.main
 ```
 
-<<<<<<< Updated upstream
-## 速さ(2026/11/05、この PC で測定、各 1 回)
-
-環境: RTX 3060 Laptop(6GB)、Windows 11。2 行の英文(約 100 文字)で測った。
-
-| 処理 | 時間 |
-| --- | --- |
-| OCR(PaddleOCR、エンジンの初期化を含む) | 約 18 秒 |
-| 日本語訳(LLM)、**最初の 1 回** | 約 76 秒 |
-| 日本語訳(LLM)、**2 回目から** | 約 4 秒 |
-
-最初の 1 回が遅いのは、モデル(読み込むと約 6GB)を GPU に読み込むため。GPU のメモリに入りきらず、約 3 割を CPU で動かしている(`ollama ps` で `30%/70% CPU/GPU`)。
-Ollama は 5 分使わないとモデルを外すので、間が空くと、また最初の 1 回と同じだけ待つ。
-
-## ディレクトリ構成
-
-```
-src/globalstudy/
-├── main.py       # エントリポイント
-├── config/       # 設定値の集約
-├── utils/        # ロガー等の共通ユーティリティ
-├── ui/           # GUI（services のみに依存）
-├── capture/      # 画面キャプチャ・ホットキー
-├── ocr/          # OCR（エンジン差し替え可能）
-├── ai/           # LLM クライアント（差し替え可能）
-├── services/     # ユースケース統合（capture→ocr→ai）
-├── models/       # データモデル
-└── storage/      # 学習履歴(未実装)
-```
-
-アーキテクチャ詳細は [docs/architecture.md](docs/architecture.md) を参照。
-目指している全体像(用語辞典など、これから作るものを含む)は [開発コンセプト.md](開発コンセプト.md) にある。
-=======
 1. 「範囲選択」で、動画やスライドの部分をドラッグする。
 2. `Ctrl+Shift+Q`(または「キャプチャ＆翻訳」)。原文と訳文が表示される。
 3. 元の位置に訳を重ねたいときは「オーバーレイ翻訳」。スライドが進むたびに訳したいときは、自動のトグルを ON にする。
@@ -187,4 +123,3 @@ python -m pytest                           # 単体テスト(Ollama は不要)
 ## ライセンス
 
 [MIT](LICENSE)
->>>>>>> Stashed changes
