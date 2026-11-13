@@ -1,140 +1,101 @@
 """Ollama API クライアント実装。
 
-/api/chat でテキスト生成を行う（ストリーミング・非ストリーミング両対応）。
-qwen3 系の思考モード（<think> タグ）は設定で制御し、
-残留した場合も除去して返す。
+テキストLLM（qwen3 等）との通信を行う。
+共通処理は BaseOllamaClient に委譲し、プロンプト送信・ストリーミング生成を提供する。
 """
 
-import json
-import re
 from collections.abc import Iterator
 
-import requests
-
 from globalstudy.ai.base import LlmClient, LlmError
+from globalstudy.ai.base_ollama_client import BaseOllamaClient, OllamaApiError
 from globalstudy.config import Config
 from globalstudy.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_THINK_TAG_PATTERN = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
-_AVAILABILITY_TIMEOUT_SECONDS = 3
 
+class OllamaClient(LlmClient, BaseOllamaClient):
+    """Ollama サーバーと通信する LLM クライアント。
 
-class OllamaClient(LlmClient):
-    """Ollama サーバーと通信する LLM クライアント。"""
+    LlmClient インターフェースを実装しつつ、BaseOllamaClient の
+    共通通信処理を継承する。このクラスではテキストのみの
+    ペイロード構築と、OllamaApiError → LlmError の変換のみを担当する。
+    """
 
-    def __init__(self, config: Config) -> None:
-        self._config = config.llm
+    def __init__(self, config: Config, llm_config=None) -> None:
+        """クライアントを初期化する。
+
+        Args:
+            config: アプリ設定。
+            llm_config: 使用する LlmConfig の上書き（省略時は config.llm）。
+                オーバーレイ翻訳など、用途別に軽量モデルへ
+                切り替える場合に指定する。
+        """
+        # LLM設定（base_url, model, timeout, keep_alive, enable_thinking）
+        self._config = llm_config or config.llm
+
+    @property
+    def _base_url(self) -> str:
+        return self._config.base_url
+
+    @property
+    def _model(self) -> str:
+        return self._config.model
+
+    @property
+    def _timeout_seconds(self) -> int:
+        return self._config.timeout_seconds
 
     def is_available(self) -> bool:
-        try:
-            response = requests.get(
-                f"{self._config.base_url}/api/tags",
-                timeout=_AVAILABILITY_TIMEOUT_SECONDS,
-            )
-            return response.ok
-        except requests.RequestException:
-            return False
+        """Ollama サーバーへ接続可能かを返す。"""
+        return self._check_available()
 
     def generate(self, prompt: str) -> str:
+        """プロンプトを送信し、生成テキストを一括で返す。
+
+        Args:
+            prompt: LLMへ送信するプロンプト文字列。
+
+        Returns:
+            LLMが生成したテキスト（思考タグ除去済み）。
+
+        Raises:
+            LlmError: 接続失敗・タイムアウト・不正応答の場合。
+        """
         payload = {
             "model": self._config.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "think": self._config.enable_thinking,
+            "keep_alive": self._config.keep_alive,
         }
         logger.debug("Ollama へ送信 (model=%s, %d文字)", self._config.model, len(prompt))
-
         try:
-            response = requests.post(
-                f"{self._config.base_url}/api/chat",
-                json=payload,
-                timeout=self._config.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.ConnectionError as exc:
-            raise LlmError(
-                f"Ollama へ接続できません（{self._config.base_url}）。"
-                "Ollama が起動しているか確認してください。"
-            ) from exc
-        except requests.Timeout as exc:
-            raise LlmError(
-                f"Ollama の応答がタイムアウトしました（{self._config.timeout_seconds}秒）。"
-            ) from exc
-        except requests.RequestException as exc:
-            raise LlmError(f"Ollama へのリクエストに失敗しました: {exc}") from exc
-
-        return self._extract_content(response.json())
+            return self._generate(payload)
+        except OllamaApiError as exc:
+            raise LlmError(str(exc)) from exc
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
-        """ストリーミングでテキストを生成し、チャンクを逐次返す。"""
+        """ストリーミングでテキストを生成し、チャンクを逐次返す。
+
+        Args:
+            prompt: LLMへ送信するプロンプト文字列。
+
+        Yields:
+            生成されたテキストの部分文字列（思考タグ除去済み）。
+
+        Raises:
+            LlmError: 接続失敗・タイムアウト・不正応答の場合。
+        """
         payload = {
             "model": self._config.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
             "think": self._config.enable_thinking,
+            "keep_alive": self._config.keep_alive,
         }
         logger.debug("Ollama へストリーミング送信 (model=%s, %d文字)", self._config.model, len(prompt))
-
         try:
-            response = requests.post(
-                f"{self._config.base_url}/api/chat",
-                json=payload,
-                stream=True,
-                timeout=self._config.timeout_seconds,
-            )
-            response.raise_for_status()
-        except requests.ConnectionError as exc:
-            raise LlmError(
-                f"Ollama へ接続できません（{self._config.base_url}）。"
-                "Ollama が起動しているか確認してください。"
-            ) from exc
-        except requests.Timeout as exc:
-            raise LlmError(
-                f"Ollama の応答がタイムアウトしました（{self._config.timeout_seconds}秒）。"
-            ) from exc
-        except requests.RequestException as exc:
-            raise LlmError(f"Ollama へのリクエストに失敗しました: {exc}") from exc
-
-        in_think = False
-        try:
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                chunk = self._extract_stream_chunk(json.loads(line))
-                if not chunk:
-                    continue
-                if "<think>" in chunk:
-                    in_think = True
-                    chunk = chunk.split("<think>")[0]
-                if "</think>" in chunk:
-                    in_think = False
-                    chunk = chunk.split("</think>")[1]
-                if in_think:
-                    continue
-                if chunk:
-                    yield chunk
-        except json.JSONDecodeError as exc:
-            raise LlmError(f"Ollama のストリーミング応答のパースに失敗しました: {exc}") from exc
-        except requests.RequestException as exc:
-            raise LlmError(f"Ollama のストリーミング中にエラーが発生しました: {exc}") from exc
-
-    @staticmethod
-    def _extract_stream_chunk(body: dict) -> str:
-        """ストリーミングの1チャンクからテキストを抽出する。"""
-        try:
-            return body["message"]["content"]
-        except (KeyError, TypeError):
-            return ""
-
-    @staticmethod
-    def _extract_content(body: dict) -> str:
-        try:
-            content = body["message"]["content"]
-        except (KeyError, TypeError) as exc:
-            raise LlmError(f"Ollama の応答形式が不正です: {body}") from exc
-
-        content = _THINK_TAG_PATTERN.sub("", content).strip()
-        logger.debug("Ollama から受信 (%d文字)", len(content))
-        return content
+            yield from self._generate_stream(payload)
+        except OllamaApiError as exc:
+            raise LlmError(str(exc)) from exc

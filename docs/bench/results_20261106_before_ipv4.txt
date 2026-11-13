@@ -1,0 +1,26 @@
+(base_url = http://localhost:11434 のときの結果。tools/bench_pipeline.py 5 の出力から結果部分を転記)
+
+=== results ===
+capture (mss + PNG save)           n=5  median     32.1 ms  min     30.3  max     38.8
+OCR cold (model load + 1st)        n=1  median    608.4 ms  min    608.4  max    608.4
+OCR warm                           n=5  median    189.0 ms  min    165.5  max    201.5
+OCR accuracy: char similarity 1.000, exact lines 6/6, mean confidence 0.993
+translate cold first chunk (qwen3:8b) n=1  median  46391.0 ms  min  46391.0  max  46391.0
+translate cold total (qwen3:8b)    n=1  median  52857.1 ms  min  52857.1  max  52857.1
+translate warm first chunk         n=5  median   2058.8 ms  min   2025.2  max   2072.1
+translate warm total               n=5  median   2868.5 ms  min   2823.6  max   2897.4
+overlay cold first patch (qwen3:1.7b) n=1  median  11808.6 ms  min  11808.6  max  11808.6
+overlay cold all patches           n=1  median  12224.4 ms  min  12224.4  max  12224.4
+overlay warm first patch (incl. OCR) n=5  median   2282.9 ms  min   2262.3  max   2352.5
+overlay warm all patches (incl. OCR) n=5  median   2595.7 ms  min   2578.5  max   2695.7
+overlay patches per run: [6, 6, 6, 6, 6] (lines on slide: 6)
+
+=== 原因の切り分け(同日) ===
+localhost  GET /api/version ms: [2052, 2028, 2013, 2022, 2027]
+127.0.0.1  GET /api/version ms: [1, 1, 1, 1, 1]
+getaddrinfo localhost: ['::1', '127.0.0.1']
+connect ::1: ConnectionRefusedError in 2047 ms
+connect 127.0.0.1: ok in 11 ms
+netstat: TCP 127.0.0.1:11434 LISTENING (IPv4 のみ)
+Ollama 側の内訳(翻訳 1 回, warm): load 3 ms, prompt_eval 8 ms (332 tokens), eval 806 ms (107 tokens)
+→ クライアントが見る最初のチャンクは 2038 ms。差の約 2 秒は Ollama に届く前の接続待ち。

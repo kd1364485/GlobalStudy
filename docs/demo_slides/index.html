@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Why Batching Speeds Up GPU Inference</title>
+<!--
+  GlobalStudy のデモ録画用スライド(自作。内容は MiniAIInferencePlatform の動的バッチ化)。
+  操作: → / Space / クリック = 次へ、← = 前へ、F = 全画面、URL の #3 で 3 枚目から。
+  スライドの切り替えにアニメーションを付けていない(自動翻訳の変化検知が 1 回で安定するように)。
+-->
+<style>
+  :root {
+    --ink: #1b2330;
+    --muted: #5a6577;
+    --paper: #fbfaf7;
+    --navy: #14213d;
+    --blue: #2f6fde;
+    --teal: #12a17b;
+    --amber: #f0a52b;
+    --red: #d9534f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Segoe UI", Arial, sans-serif; color: var(--ink);
+  }
+  /* 1600x900 の舞台を、画面に合わせて拡大縮小する */
+  #stage { width: 1600px; height: 900px; position: relative; transform-origin: center; flex: none; }
+  .slide {
+    position: absolute; inset: 0; display: none;
+    background: var(--paper); padding: 90px 120px;
+  }
+  .slide.active { display: block; }
+  h1 { font-size: 64px; font-weight: 700; line-height: 1.15; letter-spacing: -0.5px; }
+  h2 { font-size: 52px; font-weight: 700; margin-bottom: 48px; }
+  p, li { font-size: 36px; line-height: 1.5; }
+  ul { list-style: none; }
+  li { padding-left: 44px; position: relative; margin-bottom: 26px; }
+  li::before { content: ""; position: absolute; left: 4px; top: 22px; width: 14px; height: 14px; border-radius: 50%; background: var(--blue); }
+  .num { position: absolute; right: 48px; bottom: 32px; font-size: 20px; color: var(--muted); }
+
+  /* 1. タイトル(暗い背景。オーバーレイの文字色が白になるところを見せる) */
+  .title { background: var(--navy); color: #fff; display: none; flex-direction: column; justify-content: center; }
+  .title.active { display: flex; }
+  .title h1 { font-size: 84px; margin-bottom: 36px; }
+  .title p { font-size: 38px; color: #c9d3e6; }
+  .title .bar { width: 160px; height: 10px; background: var(--amber); margin-bottom: 48px; border-radius: 5px; }
+  .title .num { color: #8d9ab3; }
+
+  /* 3. 図 */
+  .diagram svg { width: 100%; height: 600px; }
+
+  /* 4. グラフ */
+  /* .slide の display:none を上書きしないよう、表示中だけ grid にする */
+  .chart.active { display: grid; grid-template-columns: 1fr 1fr; column-gap: 80px; align-content: start; }
+  .chart h2 { grid-column: 1 / -1; margin-bottom: 12px; }
+  .chart .caption { grid-column: 1 / -1; font-size: 28px; color: var(--muted); margin-bottom: 56px; }
+  .panel h3 { font-size: 34px; margin-bottom: 24px; }
+  .bars { display: flex; align-items: flex-end; gap: 56px; height: 400px; border-bottom: 4px solid var(--ink); padding-left: 20px; }
+  .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; width: 190px; }
+  .bar-col .val { font-size: 36px; font-weight: 700; margin-bottom: 16px; padding: 0 12px; letter-spacing: 1px; }
+  .bar-col .fill { width: 100%; border-radius: 8px 8px 0 0; }
+  .labels { display: flex; gap: 56px; padding-left: 20px; margin-top: 14px; }
+  .labels span { width: 190px; text-align: center; font-size: 32px; font-weight: 600; color: var(--ink); }
+
+  /* 5. トレードオフ + コード */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
+  pre {
+    background: #0f1724; color: #e6edf7; border-radius: 14px; padding: 36px 40px;
+    font-family: Consolas, "Courier New", monospace; font-size: 27px; line-height: 1.6;
+  }
+  pre .c { color: #8fa3bf; }
+  pre .k { color: #ffb86b; }
+  .note { font-size: 26px; color: var(--muted); margin-top: 18px; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- 1 -->
+  <section class="slide title">
+    <div class="bar"></div>
+    <h1>Why Batching Speeds Up<br>GPU Inference</h1>
+    <p>Notes from building a small inference server</p>
+    <div class="num">1 / 5</div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide">
+    <h2>The problem with one request at a time</h2>
+    <ul>
+      <li>A small model finishes its math in microseconds.</li>
+      <li>Every call still pays a fixed cost.</li>
+      <li>Data is copied to the GPU and kernels are launched.</li>
+      <li>With one input per call, that fixed cost dominates.</li>
+      <li>Most of the GPU sits idle while requests wait in line.</li>
+    </ul>
+    <div class="num">2 / 5</div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide diagram">
+    <h2>Dynamic batching</h2>
+    <svg viewBox="0 0 1360 600" font-family="Segoe UI, Arial, sans-serif">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#1b2330"/>
+        </marker>
+      </defs>
+      <!-- clients -->
+      <g font-size="26" fill="#fff" text-anchor="middle">
+        <rect x="0" y="40" width="200" height="80" rx="14" fill="#2f6fde"/><text x="100" y="90">Client A</text>
+        <rect x="0" y="160" width="200" height="80" rx="14" fill="#2f6fde"/><text x="100" y="210">Client B</text>
+        <rect x="0" y="280" width="200" height="80" rx="14" fill="#2f6fde"/><text x="100" y="330">Client C</text>
+        <rect x="0" y="400" width="200" height="80" rx="14" fill="#2f6fde"/><text x="100" y="450">Client D</text>
+      </g>
+      <g stroke="#1b2330" stroke-width="4" fill="none" marker-end="url(#arrow)">
+        <path d="M205,80 C300,80 300,260 380,260"/>
+        <path d="M205,200 C300,200 300,260 380,260"/>
+        <path d="M205,320 C300,320 300,260 380,260"/>
+        <path d="M205,440 C300,440 300,260 380,260"/>
+      </g>
+      <!-- queue -->
+      <rect x="390" y="190" width="300" height="140" rx="16" fill="#fff" stroke="#1b2330" stroke-width="4"/>
+      <g fill="#f0a52b"><rect x="415" y="225" width="50" height="70" rx="6"/><rect x="480" y="225" width="50" height="70" rx="6"/><rect x="545" y="225" width="50" height="70" rx="6"/><rect x="610" y="225" width="50" height="70" rx="6"/></g>
+      <text x="540" y="380" font-size="28" text-anchor="middle" fill="#1b2330">Request queue</text>
+      <line x1="700" y1="260" x2="800" y2="260" stroke="#1b2330" stroke-width="4" marker-end="url(#arrow)"/>
+      <!-- batcher -->
+      <rect x="810" y="170" width="250" height="180" rx="16" fill="#12a17b"/>
+      <text x="935" y="245" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">Batcher</text>
+      <text x="935" y="290" font-size="22" text-anchor="middle" fill="#eafff8">full batch or</text>
+      <text x="935" y="320" font-size="22" text-anchor="middle" fill="#eafff8">short timeout</text>
+      <line x1="1070" y1="260" x2="1150" y2="260" stroke="#1b2330" stroke-width="4" marker-end="url(#arrow)"/>
+      <!-- gpu -->
+      <rect x="1160" y="150" width="200" height="220" rx="16" fill="#14213d"/>
+      <text x="1260" y="250" font-size="34" font-weight="700" text-anchor="middle" fill="#fff">GPU</text>
+      <text x="1260" y="295" font-size="22" text-anchor="middle" fill="#c9d3e6">one launch</text>
+      <text x="1260" y="325" font-size="22" text-anchor="middle" fill="#c9d3e6">for 4 inputs</text>
+      <text x="680" y="560" font-size="30" text-anchor="middle" fill="#5a6577">The fixed cost is paid once per batch, not once per request.</text>
+    </svg>
+    <div class="num">3 / 5</div>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide chart">
+    <h2>Measured on one GPU</h2>
+    <p class="caption">Same server and same load; only dynamic batching was changed.</p>
+    <div class="panel">
+      <h3>Throughput (requests per second)</h3>
+      <div class="bars">
+        <div class="bar-col"><div class="val">4,160</div><div class="fill" style="height:8%;background:#d9534f"></div></div>
+        <div class="bar-col"><div class="val">45,283</div><div class="fill" style="height:88%;background:#12a17b"></div></div>
+      </div>
+      <div class="labels"><span>Without</span><span>With</span></div>
+    </div>
+    <div class="panel">
+      <h3>Median latency (ms)</h3>
+      <div class="bars">
+        <div class="bar-col"><div class="val">23.6</div><div class="fill" style="height:88%;background:#d9534f"></div></div>
+        <div class="bar-col"><div class="val">2.1</div><div class="fill" style="height:8%;background:#12a17b"></div></div>
+      </div>
+      <div class="labels"><span>Without</span><span>With</span></div>
+    </div>
+    <div class="num">4 / 5</div>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide">
+    <h2>The trade-off</h2>
+    <div class="two">
+      <ul>
+        <li>Requests wait for a batch.</li>
+        <li>A timeout limits the wait.</li>
+        <li>Light load means small batches.</li>
+        <li>Small batches mean less gain.</li>
+      </ul>
+      <div>
+<pre><span class="c"># worker loop (pseudocode)</span>
+<span class="k">while</span> running:
+    batch = queue.pop_many(
+        max_items=8,
+        timeout_ms=2)
+    inputs = stack(batch)
+    outputs = model.run(inputs)
+    reply_each(batch, outputs)</pre>
+        <p class="note">Parameter values are examples.</p>
+      </div>
+    </div>
+    <div class="num">5 / 5</div>
+  </section>
+
+</div>
+<script>
+  const slides = [...document.querySelectorAll(".slide")];
+  const stage = document.getElementById("stage");
+  let index = 0;
+
+  function fit() {
+    const scale = Math.min(innerWidth / 1600, innerHeight / 900);
+    stage.style.transform = `scale(${scale})`;
+  }
+  function show(i) {
+    index = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, n) => s.classList.toggle("active", n === index));
+    history.replaceState(null, "", `#${index + 1}`);
+  }
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", " ", "PageDown", "Enter"].includes(e.key)) { show(index + 1); e.preventDefault(); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { show(index - 1); e.preventDefault(); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key === "f" || e.key === "F") {
+      document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    }
+  });
+  addEventListener("click", () => show(index + 1));
+  addEventListener("resize", fit);
+  fit();
+  show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
+</body>
+</html>

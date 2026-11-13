@@ -19,13 +19,19 @@ _BORDER_WIDTH = 2
 
 
 class RegionSelectorOverlay(QWidget):
-    """ドラッグによる画面範囲選択を行う全画面オーバーレイ。"""
+    """ドラッグによる画面範囲選択を行う全画面オーバーレイ。
+
+    全画面を半透明の黒で覆い、ドラッグ範囲のみ透明にする。
+    選択確定時に region_selected シグナルを発行し、
+    Escキーで selection_cancelled シグナルを発行する。
+    """
 
     region_selected = Signal(CaptureRegion)
     selection_cancelled = Signal()
 
     def __init__(self) -> None:
         super().__init__()
+        # ドラッグ開始点・現在点・選択中フラグ
         self._origin = QPoint()
         self._current = QPoint()
         self._selecting = False
@@ -50,6 +56,7 @@ class RegionSelectorOverlay(QWidget):
         return rect
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt命名規則)
+        """オーバーレイと選択範囲を描画する。"""
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(0, 0, 0, _OVERLAY_ALPHA))
 
@@ -69,6 +76,7 @@ class RegionSelectorOverlay(QWidget):
             painter.drawRect(selection)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """左クリックで範囲選択を開始する。"""
         if event.button() == Qt.MouseButton.LeftButton:
             self._origin = event.position().toPoint()
             self._current = self._origin
@@ -76,11 +84,13 @@ class RegionSelectorOverlay(QWidget):
             self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """ドラッグ中に選択範囲を更新する。"""
         if self._selecting:
             self._current = event.position().toPoint()
             self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """左ボタン離脱で範囲選択を確定し、シグナルを発行する。"""
         if event.button() != Qt.MouseButton.LeftButton or not self._selecting:
             return
         self._selecting = False
@@ -96,6 +106,7 @@ class RegionSelectorOverlay(QWidget):
             self.selection_cancelled.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        """Escキーで選択をキャンセルする。"""
         if event.key() == Qt.Key.Key_Escape:
             logger.debug("範囲選択キャンセル（Esc）")
             self.close()

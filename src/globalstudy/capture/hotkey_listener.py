@@ -13,12 +13,17 @@ logger = get_logger(__name__)
 
 
 class HotkeyListener(QObject):
-    """グローバルホットキーを監視し、検知時に triggered シグナルを発行する。"""
+    """グローバルホットキーを監視し、検知時に triggered シグナルを発行する。
+
+    pynput のリスナースレッドでキー入力を検知し、
+    Qt シグナル経由でメインスレッドへ安全に通知する。
+    """
 
     triggered = Signal()
 
     def __init__(self, hotkey: str) -> None:
         super().__init__()
+        # 'ctrl+shift+q' → '<ctrl>+<shift>+q' へ変換
         self._hotkey_spec = self._to_pynput_format(hotkey)
         self._listener: keyboard.GlobalHotKeys | None = None
 
@@ -42,6 +47,7 @@ class HotkeyListener(QObject):
         logger.info("ホットキー監視停止")
 
     def _on_hotkey(self) -> None:
+        """ホットキー検知時に pynput スレッドから呼ばれるコールバック。"""
         logger.debug("ホットキー検知")
         self.triggered.emit()
 

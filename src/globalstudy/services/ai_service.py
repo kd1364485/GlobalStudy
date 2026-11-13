@@ -14,9 +14,14 @@ logger = get_logger(__name__)
 
 
 class AiService:
-    """LLM への問い合わせを提供するサービス。"""
+    """LLM への問い合わせを提供するサービス。
+
+    LlmClient への委譲とロギングを担当する。
+    UI層からはこのサービスのみを利用する。
+    """
 
     def __init__(self, config: Config, client: LlmClient | None = None) -> None:
+        # 外部からクライアントを注入可能（テスト用）。未指定時は OllamaClient を生成。
         self._client = client or OllamaClient(config)
 
     def is_available(self) -> bool:

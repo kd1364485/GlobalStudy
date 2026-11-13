@@ -14,7 +14,11 @@ _initialized = False
 
 
 def setup_logging(config: Config) -> None:
-    """ルートロガーを初期化する。アプリ起動時に一度だけ呼ぶ。"""
+    """ルートロガーを初期化する。アプリ起動時に一度だけ呼ぶ。
+
+    コンソール出力（INFO以上）とローテーション付きファイル出力（DEBUG以上）
+    の2つのハンドラを設定する。二重初期化は _initialized フラグで防止する。
+    """
     global _initialized
     if _initialized:
         return
@@ -46,8 +50,14 @@ def setup_logging(config: Config) -> None:
 def get_logger(name: str) -> logging.Logger:
     """モジュール用ロガーを取得する。
 
+    全てのロガーは "globalstudy" ルートロガー配下にぶら下がる。
+    これにより setup_logging() で設定したハンドラが全モジュールに適用される。
+
     Args:
         name: 通常は __name__ を渡す。
+
+    Returns:
+        "globalstudy" 配下の Logger インスタンス。
     """
     if name.startswith(_ROOT_LOGGER_NAME):
         return logging.getLogger(name)

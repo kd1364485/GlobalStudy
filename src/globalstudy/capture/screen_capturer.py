@@ -25,7 +25,12 @@ class CaptureError(Exception):
 
 
 class ScreenCapturer:
-    """指定範囲のスクリーンショットを取得し、画像ファイルとして保存する。"""
+    """指定範囲のスクリーンショットを取得し、画像ファイルとして保存する。
+
+    mss ライブラリを使用してワンショットキャプチャを行う。
+    将来 dxcam 等のリアルタイムキャプチャへ差し替え可能なよう、
+    capture(region) -> Path のインターフェースを維持する。
+    """
 
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -58,6 +63,7 @@ class ScreenCapturer:
         return output_path
 
     def _build_output_path(self) -> Path:
+        """タイムスタンプ付きのキャプチャファイルパスを生成する。"""
         timestamp = datetime.now().strftime(_FILENAME_TIMESTAMP_FORMAT)
         extension = self._config.capture.image_format
         return self._config.paths.capture_dir / f"capture_{timestamp}.{extension}"

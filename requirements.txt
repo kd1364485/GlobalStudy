@@ -14,3 +14,11 @@ onnxruntime>=1.17
 
 # Phase 4: LLM (Ollama API)
 requests>=2.31
+
+# 画像処理（スライド判定・dHash・オーバーレイの背景色）
+opencv-python>=4.8
+numpy>=1.26
+
+# 測定スクリプト（tools/bench_pipeline.py のテスト画像の描画）とテスト
+pillow>=10
+pytest>=8

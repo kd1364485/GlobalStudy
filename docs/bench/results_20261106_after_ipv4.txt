@@ -1,0 +1,31 @@
+テスト画像: C:\Users\user\AppData\Local\Temp\globalstudy_bench_iy29hku2\slide.png
+
+=== results ===
+capture (mss + PNG save)           n=5  median     33.2 ms  min     30.3  max     40.6
+OCR cold (model load + 1st)        n=1  median    545.6 ms  min    545.6  max    545.6
+OCR warm                           n=5  median    166.8 ms  min    160.8  max    196.5
+OCR accuracy: char similarity 1.000, exact lines 6/6, mean confidence 0.993
+translate cold first chunk (qwen3:8b) n=1  median   1707.1 ms  min   1707.1  max   1707.1
+translate cold total (qwen3:8b)    n=1  median   2519.7 ms  min   2519.7  max   2519.7
+translate warm first chunk         n=5  median     15.5 ms  min     15.3  max     29.8
+translate warm total               n=5  median    807.4 ms  min    755.8  max    831.1
+overlay cold first patch (qwen3:1.7b) n=1  median   1157.4 ms  min   1157.4  max   1157.4
+overlay cold all patches           n=1  median   1500.1 ms  min   1500.1  max   1500.1
+overlay warm first patch (incl. OCR) n=5  median    230.2 ms  min    218.5  max    262.2
+overlay warm all patches (incl. OCR) n=5  median    568.9 ms  min    526.7  max    596.0
+overlay patches per run: [6, 6, 6, 6, 6] (lines on slide: 6)
+
+=== OCR text ===
+Why batching helps GPU inference
+A single request uses only a small part of the GPU.
+Batching groups several requests into one kernel launch,
+so the fixed cost per launch is shared.
+The trade-off: each request waits a little longer
+until the batch is full or a timeout expires.
+
+=== translation (last warm run) ===
+なぜバッチ処理がGPU推論に役立つか  
+単一のリクエストはGPUの一部しか使用しません。  
+バッチ処理は複数のリクエストを1つのカーネル起動にまとめることで、  
+各起動あたりの固定コストを共有できます。  
+トレードオフは、各リクエストがバッチが満杯になるか、タイムアウトが発生するまで少し待つことになります。

@@ -1,4 +1,8 @@
-"""アプリ全体の QSS スタイル定義。"""
+"""アプリ全体の QSS スタイル定義。
+
+Catppuccin Mocha カラーパレットをベースにしたダークテーマ。
+MainWindow の起動時に QApplication に適用される。
+"""
 
 APP_STYLESHEET = """
 QMainWindow {

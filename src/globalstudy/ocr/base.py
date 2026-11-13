@@ -14,7 +14,12 @@ class OcrError(Exception):
 
 
 class OcrEngine(ABC):
-    """OCR エンジンの共通インターフェース。"""
+    """OCR エンジンの共通インターフェース。
+
+    具体的な実装（RapidOcrEngine / PaddleOcrEngine）はこのクラスを
+    継承し、recognize() メソッドを実装する。サービス層はこの
+    インターフェースに依存することでエンジンを意識せずにOCRを利用できる。
+    """
 
     @abstractmethod
     def recognize(self, image_path: Path) -> OcrResult:
